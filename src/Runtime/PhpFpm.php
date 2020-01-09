@@ -173,6 +173,7 @@ final class PhpFpm
     private function eventToFastCgiRequest(array $event): ProvidesRequestData
     {
         $requestBody = $event['body'] ?? '';
+
         if ($event['isBase64Encoded'] ?? false) {
             $requestBody = base64_decode($requestBody);
         }
@@ -209,7 +210,9 @@ final class PhpFpm
         $request->setServerPort((int) ($headers['x-forwarded-port'][0] ?? 80));
         $request->setCustomVar('PATH_INFO', $event['path'] ?? '/');
         $request->setCustomVar('QUERY_STRING', $queryString);
-
+        if ($event['requestContext'] ?? false) {
+            $this->setArrayValue('REQUEST_CONTEXT', $event['requestContext'], $request);
+        }
         // See https://stackoverflow.com/a/5519834/245552
         if (! empty($requestBody) && $method !== 'TRACE' && ! isset($headers['content-type'])) {
             $headers['content-type'] = ['application/x-www-form-urlencoded'];
@@ -354,5 +357,25 @@ final class PhpFpm
         }
 
         return array_change_key_case($responseHeaders, CASE_LOWER);
+    }
+
+    /**
+     * Recursively loop through a data object and create env variables
+     */
+    private function setArrayValue(string $name, array $array, FastCgiRequest $request): void
+    {
+        if (! is_array($array)) {
+            $request->setCustomVar(strtoupper($name), $array);
+        }
+
+        foreach ($array as $key => $value) {
+            if (! is_array($value)) {
+                $request->setCustomVar(strtoupper($name . '_' . $key), $value);
+            }
+
+            if (is_array($value)) {
+                $this->setArrayValue(strtoupper($name . '_' . $key), $value, $request);
+            }
+        }
     }
 }
